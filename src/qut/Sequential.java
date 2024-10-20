@@ -15,9 +15,6 @@ public class Sequential {
     private static final Matrix BLOSUM_62 = BLOSUM62.Load();
     private static byte[] complement = new byte['z'];
 
-    // Import libraries to make use of thread pools
-    private static final ExecutorService threadPool = Executors.newCachedThreadPool();
-
     static {
         complement['C'] = 'G';
         complement['c'] = 'g';
@@ -94,36 +91,42 @@ public class Sequential {
     }
 
     public static void run(String referenceFile, String dir) throws FileNotFoundException, IOException {
+        int THREAD_COUNT = Runtime.getRuntime().availableProcessors();
+        ExecutorService threadPool = Executors.newFixedThreadPool(THREAD_COUNT);
         // Start time for timer
         long startTime = System.currentTimeMillis();
-
         List<Gene> referenceGenes = ParseReferenceGenes(referenceFile);
-
-        List<Future<?>> fileNameFuture = new CopyOnWriteArrayList<>();
-        for (String filename : ListGenbankFiles(dir)) // can parallelise. Make a thread pool
+        List<String> fileNames = ListGenbankFiles(dir);
+        List<CompletableFuture<Void>> futures = new CopyOnWriteArrayList<>();
+        for (String filename : fileNames) // can parallelise. Make a thread pool
         {
-            fileNameFuture.add(threadPool.submit(() -> {
-                System.out.println(filename);
-                GenbankRecord record = null;
-                record = Parse(filename);
-
-                List<Future<?>> referenceGeneFuture = new CopyOnWriteArrayList<>();
+            System.out.println(filename);
+            GenbankRecord record = Parse(filename);
+            CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                List<CompletableFuture<Void>> geneFutures = new CopyOnWriteArrayList<>();
                 for (Gene referenceGene : referenceGenes) {
-                    referenceGeneFuture.add(threadPool.submit(() -> {
-                                System.out.println(referenceGene.name);
-                                for (Gene gene : record.genes)
-                                    if (Homologous(gene.sequence, referenceGene.sequence)) {
-                                        NucleotideSequence upStreamRegion = GetUpstreamRegion(record.nucleotides, gene);
-                                        Match prediction = PredictPromoter(upStreamRegion);
-                                        if (prediction != null) {
-                                            consensus.get(referenceGene.name).addMatch(prediction);
-                                            consensus.get("all").addMatch(prediction);
-                                        }
+                    CompletableFuture<Void> geneFuture = CompletableFuture.runAsync(() -> {
+                        try {
+
+                            System.out.println(referenceGene.name);
+                            for (Gene gene : record.genes)
+                                if (Homologous(gene.sequence, referenceGene.sequence)) {
+                                    NucleotideSequence upStreamRegion = GetUpstreamRegion(record.nucleotides, gene);
+                                    Match prediction = PredictPromoter(upStreamRegion);
+                                    if (prediction != null) {
+                                        consensus.get(referenceGene.name).addMatch(prediction);
+                                        consensus.get("all").addMatch(prediction);
                                     }
-                            }
-                    ));
+                                }
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                        }
+                    }, threadPool);
+                    geneFutures.add(geneFuture);
                 }
-            }));
+                CompletableFuture.allOf(geneFutures.toArray(new CompletableFuture[0])).join();
+            }, threadPool);
+            futures.add(future);
         }
 
         // End time for timer of code
@@ -133,7 +136,8 @@ public class Sequential {
         long duration = endTime - startTime;
         System.out.println("Time taken: " + duration + " milliseconds");
 
-        for (Map.Entry<String, Sigma70Consensus> entry : consensus.entrySet())
+        for (
+                Map.Entry<String, Sigma70Consensus> entry : consensus.entrySet())
             System.out.println(entry.getKey() + " " + entry.getValue());
     }
 
