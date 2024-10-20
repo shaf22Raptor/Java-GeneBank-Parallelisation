@@ -10,10 +10,13 @@ import java.util.*;
 import java.util.concurrent.*;
 
 public class Sequential {
-    private static HashMap<String, Sigma70Consensus> consensus = new HashMap<String, Sigma70Consensus>();
-    private static Series sigma70_pattern = Sigma70Definition.getSeriesAll_Unanchored(0.7);
+    private static ThreadLocal<Series> threadLocalPattern = ThreadLocal.withInitial(() -> Sigma70Definition.getSeriesAll_Unanchored(0.7));
+    private static ConcurrentHashMap<String, Sigma70Consensus> consensus = new ConcurrentHashMap<>();
     private static final Matrix BLOSUM_62 = BLOSUM62.Load();
     private static byte[] complement = new byte['z'];
+
+    private static int THREAD_COUNT = Runtime.getRuntime().availableProcessors();
+    private static ExecutorService threadPool = Executors.newFixedThreadPool(5);
 
     static {
         complement['C'] = 'G';
@@ -64,16 +67,36 @@ public class Sequential {
     }
 
     private static Match PredictPromoter(NucleotideSequence upStreamRegion) {
-        return BioPatterns.getBestMatch(sigma70_pattern, upStreamRegion.toString());
+        return BioPatterns.getBestMatch(threadLocalPattern.get(), upStreamRegion.toString());
     }
 
     private static void ProcessDir(List<String> list, File dir) {
-        if (dir.exists())
-            for (File file : dir.listFiles())
-                if (file.isDirectory())
-                    ProcessDir(list, file);
-                else
-                    list.add(file.getPath());
+        // Commented out code is used to allow the program to work with 4 or less threads
+//        if (dir.exists())
+//            for (File file : dir.listFiles())
+//                if (file.isDirectory())
+//                    ProcessDir(list, file);
+//                else
+//                    list.add(file.getPath());
+        if (dir.exists()) {
+            List<Future<?>> futures = new ArrayList<>();
+            for (File file : dir.listFiles()) {
+                futures.add(threadPool.submit(() -> {
+                    if (file.isDirectory()) {
+                        ProcessDir(list, file);
+                    } else {
+                        list.add(file.getPath());
+                    }
+                }));
+            }
+            for (Future<?> future : futures) {
+                try {
+                    future.get();
+                } catch (InterruptedException | ExecutionException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
     }
 
     private static List<String> ListGenbankFiles(String dir) {
@@ -91,43 +114,45 @@ public class Sequential {
     }
 
     public static void run(String referenceFile, String dir) throws FileNotFoundException, IOException {
-        int THREAD_COUNT = Runtime.getRuntime().availableProcessors();
-        ExecutorService threadPool = Executors.newFixedThreadPool(THREAD_COUNT);
+
         // Start time for timer
         long startTime = System.currentTimeMillis();
         List<Gene> referenceGenes = ParseReferenceGenes(referenceFile);
         List<String> fileNames = ListGenbankFiles(dir);
-        List<CompletableFuture<Void>> futures = new CopyOnWriteArrayList<>();
-        for (String filename : fileNames) // can parallelise. Make a thread pool
-        {
+
+        List<Future<?>> futures = new ArrayList<>();
+        for (String filename : fileNames) {
             System.out.println(filename);
             GenbankRecord record = Parse(filename);
-            CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
-                List<CompletableFuture<Void>> geneFutures = new CopyOnWriteArrayList<>();
-                for (Gene referenceGene : referenceGenes) {
-                    CompletableFuture<Void> geneFuture = CompletableFuture.runAsync(() -> {
-                        try {
-
-                            System.out.println(referenceGene.name);
-                            for (Gene gene : record.genes)
-                                if (Homologous(gene.sequence, referenceGene.sequence)) {
-                                    NucleotideSequence upStreamRegion = GetUpstreamRegion(record.nucleotides, gene);
-                                    Match prediction = PredictPromoter(upStreamRegion);
-                                    if (prediction != null) {
-                                        consensus.get(referenceGene.name).addMatch(prediction);
-                                        consensus.get("all").addMatch(prediction);
-                                    }
+            for (Gene referenceGene : referenceGenes) {
+                futures.add(threadPool.submit(() -> {
+                    System.out.println(referenceGene.name);
+                    for (Gene gene : record.genes)
+                        if (Homologous(gene.sequence, referenceGene.sequence)) {
+                            NucleotideSequence upStreamRegion = GetUpstreamRegion(record.nucleotides, gene);
+                            Match prediction = PredictPromoter(upStreamRegion);
+                            if (prediction != null) {
+                                synchronized (consensus) {
+                                    consensus.get(referenceGene.name).addMatch(prediction);
+                                    consensus.get("all").addMatch(prediction);
                                 }
-                        } catch (Exception e) {
-                            e.printStackTrace();
+                            }
                         }
-                    }, threadPool);
-                    geneFutures.add(geneFuture);
-                }
-                CompletableFuture.allOf(geneFutures.toArray(new CompletableFuture[0])).join();
-            }, threadPool);
-            futures.add(future);
+                }));
+            }
         }
+
+        // Wait for all tasks to complete
+        for (Future<?> future : futures) {
+            try {
+                future.get();
+            } catch (InterruptedException | ExecutionException e) {
+                e.printStackTrace();
+            }
+        }
+
+        // Shutdown the thread pool
+        threadPool.shutdown();
 
         // End time for timer of code
         long endTime = System.currentTimeMillis();
@@ -136,12 +161,13 @@ public class Sequential {
         long duration = endTime - startTime;
         System.out.println("Time taken: " + duration + " milliseconds");
 
-        for (
-                Map.Entry<String, Sigma70Consensus> entry : consensus.entrySet())
+        for (Map.Entry<String, Sigma70Consensus> entry : consensus.entrySet()) {
             System.out.println(entry.getKey() + " " + entry.getValue());
+        }
     }
 
     public static void main(String[] args) throws FileNotFoundException, IOException {
+        System.out.println(THREAD_COUNT);
         // Run the program
         run("./referenceGenes.list", "./Ecoli");
     }
