@@ -157,7 +157,6 @@ public class Sequential {
     }
 
     public static void main(String[] args) throws FileNotFoundException, IOException {
-        System.out.println(THREAD_COUNT);
         // Run the program
         run("./referenceGenes.list", "./Ecoli");
     }
