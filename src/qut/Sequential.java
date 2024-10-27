@@ -16,7 +16,7 @@ public class Sequential {
     private static byte[] complement = new byte['z'];
 
     private static int THREAD_COUNT = Runtime.getRuntime().availableProcessors();
-    private static ExecutorService threadPool = Executors.newFixedThreadPool(5);
+    private static ExecutorService threadPool = Executors.newFixedThreadPool(THREAD_COUNT);
 
     static {
         complement['C'] = 'G';
@@ -72,31 +72,31 @@ public class Sequential {
 
     private static void ProcessDir(List<String> list, File dir) {
         // Commented out code is used to allow the program to work with 4 or less threads
-//        if (dir.exists())
-//            for (File file : dir.listFiles())
-//                if (file.isDirectory())
-//                    ProcessDir(list, file);
-//                else
-//                    list.add(file.getPath());
-        if (dir.exists()) {
-            List<Future<?>> futures = new ArrayList<>();
-            for (File file : dir.listFiles()) {
-                futures.add(threadPool.submit(() -> {
-                    if (file.isDirectory()) {
-                        ProcessDir(list, file);
-                    } else {
-                        list.add(file.getPath());
-                    }
-                }));
-            }
-            for (Future<?> future : futures) {
-                try {
-                    future.get();
-                } catch (InterruptedException | ExecutionException e) {
-                    e.printStackTrace();
-                }
-            }
-        }
+        if (dir.exists())
+            for (File file : dir.listFiles())
+                if (file.isDirectory())
+                    ProcessDir(list, file);
+                else
+                    list.add(file.getPath());
+//        if (dir.exists()) {
+//            List<Future<?>> futures = new ArrayList<>();
+//            for (File file : dir.listFiles()) {
+//                futures.add(threadPool.submit(() -> {
+//                    if (file.isDirectory()) {
+//                        ProcessDir(list, file);
+//                    } else {
+//                        list.add(file.getPath());
+//                    }
+//                }));
+//            }
+//            for (Future<?> future : futures) {
+//                try {
+//                    future.get();
+//                } catch (InterruptedException | ExecutionException e) {
+//                    e.printStackTrace();
+//                }
+//            }
+//        }
     }
 
     private static List<String> ListGenbankFiles(String dir) {
