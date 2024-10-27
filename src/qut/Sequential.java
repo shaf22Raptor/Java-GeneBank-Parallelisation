@@ -10,7 +10,7 @@ import java.util.*;
 import java.util.concurrent.*;
 
 public class Sequential {
-    private static ThreadLocal<Series> threadLocalPattern = ThreadLocal.withInitial(() -> Sigma70Definition.getSeriesAll_Unanchored(0.7));
+    private static ThreadLocal<Series> Sigma70Parallel = ThreadLocal.withInitial(() -> Sigma70Definition.getSeriesAll_Unanchored(0.7));
     private static ConcurrentHashMap<String, Sigma70Consensus> consensus = new ConcurrentHashMap<>();
     private static final Matrix BLOSUM_62 = BLOSUM62.Load();
     private static byte[] complement = new byte['z'];
@@ -67,11 +67,10 @@ public class Sequential {
     }
 
     private static Match PredictPromoter(NucleotideSequence upStreamRegion) {
-        return BioPatterns.getBestMatch(threadLocalPattern.get(), upStreamRegion.toString());
+        return BioPatterns.getBestMatch(Sigma70Parallel.get(), upStreamRegion.toString());
     }
 
     private static void ProcessDir(List<String> list, File dir) {
-        // Commented out code is used to allow the program to work with 4 or less threads
         if (dir.exists())
             for (File file : dir.listFiles())
                 if (file.isDirectory())
@@ -101,12 +100,12 @@ public class Sequential {
         List<Gene> referenceGenes = ParseReferenceGenes(referenceFile);
         List<String> fileNames = ListGenbankFiles(dir);
 
-        List<Future<?>> futures = new ArrayList<>();
+        List<Future<?>> futureGenes = new ArrayList<>();
         for (String filename : fileNames) {
             System.out.println(filename);
             GenbankRecord record = Parse(filename);
             for (Gene referenceGene : referenceGenes) {
-                futures.add(threadPool.submit(() -> {
+                futureGenes.add(threadPool.submit(() -> {
                     System.out.println(referenceGene.name);
                     for (Gene gene : record.genes)
                         if (Homologous(gene.sequence, referenceGene.sequence)) {
@@ -124,7 +123,7 @@ public class Sequential {
         }
 
         // Wait for all tasks to complete
-        for (Future<?> future : futures) {
+        for (Future<?> future : futureGenes) {
             try {
                 future.get();
             } catch (InterruptedException | ExecutionException e) {
