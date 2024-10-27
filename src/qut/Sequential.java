@@ -10,12 +10,18 @@ import java.util.*;
 import java.util.concurrent.*;
 
 public class Sequential {
+    // Classes from .concurrent library for compatibility with multiple threads
     private static ThreadLocal<Series> Sigma70Parallel = ThreadLocal.withInitial(() -> Sigma70Definition.getSeriesAll_Unanchored(0.7));
     private static ConcurrentHashMap<String, Sigma70Consensus> consensus = new ConcurrentHashMap<>();
+
+
     private static final Matrix BLOSUM_62 = BLOSUM62.Load();
     private static byte[] complement = new byte['z'];
 
+    // check to see how many available processors there are
     private static int THREAD_COUNT = Runtime.getRuntime().availableProcessors();
+
+    // Define thread pool
     private static ExecutorService threadPool = Executors.newFixedThreadPool(THREAD_COUNT);
 
     static {
@@ -100,11 +106,14 @@ public class Sequential {
         List<Gene> referenceGenes = ParseReferenceGenes(referenceFile);
         List<String> fileNames = ListGenbankFiles(dir);
 
+        // Define future to allow tasks to be added to thread pool
         List<Future<?>> futureGenes = new ArrayList<>();
         for (String filename : fileNames) {
             System.out.println(filename);
             GenbankRecord record = Parse(filename);
             for (Gene referenceGene : referenceGenes) {
+
+                // Add reference genes to threadpool
                 futureGenes.add(threadPool.submit(() -> {
                     System.out.println(referenceGene.name);
                     for (Gene gene : record.genes)
@@ -112,6 +121,7 @@ public class Sequential {
                             NucleotideSequence upStreamRegion = GetUpstreamRegion(record.nucleotides, gene);
                             Match prediction = PredictPromoter(upStreamRegion);
                             if (prediction != null) {
+                                // synchronise access to consensus object to prevent race conditions
                                 synchronized (consensus) {
                                     consensus.get(referenceGene.name).addMatch(prediction);
                                     consensus.get("all").addMatch(prediction);
