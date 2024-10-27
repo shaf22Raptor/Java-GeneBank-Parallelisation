@@ -78,25 +78,6 @@ public class Sequential {
                     ProcessDir(list, file);
                 else
                     list.add(file.getPath());
-//        if (dir.exists()) {
-//            List<Future<?>> futures = new ArrayList<>();
-//            for (File file : dir.listFiles()) {
-//                futures.add(threadPool.submit(() -> {
-//                    if (file.isDirectory()) {
-//                        ProcessDir(list, file);
-//                    } else {
-//                        list.add(file.getPath());
-//                    }
-//                }));
-//            }
-//            for (Future<?> future : futures) {
-//                try {
-//                    future.get();
-//                } catch (InterruptedException | ExecutionException e) {
-//                    e.printStackTrace();
-//                }
-//            }
-//        }
     }
 
     private static List<String> ListGenbankFiles(String dir) {
